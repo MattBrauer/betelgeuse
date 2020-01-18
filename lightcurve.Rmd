@@ -1,0 +1,435 @@
+---
+title: "Light Curve of Betelgeuse"
+author: "Matt Brauer"
+date: "12/31/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(lubridate)
+library(insol)
+library(zoo)
+library(forecast)
+library(tsibble)
+library(astrolibR)
+
+## constants and files
+files_betelgeuse <- c("data/aavso_betelgeuse_5.txt",
+                      "data/aavso_betelgeuse_4.txt",
+                      "data/aavso_betelgeuse_3.txt",
+                      "data/aavso_betelgeuse_2.txt",
+                      "data/aavso_betelgeuse_1.txt",
+                      "data/aavso_betelgeuse.txt")
+files_AC_Her <- "data/aavso_AC_Her.txt"
+
+ra_betelgeuse <- list(h = 05, m = 55, s = 10.3)
+
+col_specs <- cols(
+  .default = col_character(),
+  JD = col_double(),
+  Magnitude = col_double(),
+  Uncertainty = col_double(),
+  Band = col_character(),
+  `Observer Code` = col_character(),
+  `Comment Code(s)` = col_character(),
+  `Validation Flag` = col_character(),
+  `Star Name` = col_character(),
+  `Measurement Method` = col_character()
+)
+
+## functions
+
+### transform h-m-s representation of RA into decimal days
+ra2dec <- function(ra) {
+  ra$h + ra$m / 60 + ra$s / 3600
+}
+
+### add various representations of dates to tibble, including the sun's position relative to the target
+add_dates <- function(magnitudes) {
+  magnitudes %>%
+    mutate(time = {if("jd" %in% names(.)) jd %% 1 else 0.5},
+           day = {if("jd" %in% names(.)) round(jd) else {if("day" %in% names(.)) day else NA}},
+           date = as_date(insol::JD(day, inverse = TRUE))) %>%
+    separate(date, into=c("year","month","dom"), remove=FALSE) %>%
+    mutate(year = as.integer(year),
+          month = as.integer(month),
+          dom = as.integer(dom),
+          doy = (insol::daydoy(year, month, dom) + 175) %% 365)
+}
+
+add_sunpos <- function(magnitudes, ra=ra_betelgeuse) {
+  magnitudes %>%
+    mutate(sun = sunpos(jd)$ra / 360,
+           sun_rel = (sun + 1 - ra2dec(ra)/24) %% 1,
+           sun_pos = sun_rel + time)
+}
+
+### create tibble from data files, remove missing observations and rename some of the variables
+load_files <- function(files) {
+  do.call(rbind, lapply(as.list(files),
+                       function(file) {
+                         read_csv(file, col_types = col_specs)
+                       })) %>%
+    rename(jd = JD,
+           observer = `Observer Code`,
+           mag = Magnitude,
+           error = Uncertainty,
+           band = Band) %>%
+    filter(!is.na(mag)) %>%
+    distinct(jd, observer, band, mag, error, .keep_all=TRUE)
+
+}
+
+### average multiple simultaneous observations by observer
+clean_data <- function(raw_data) {
+  raw_data %>%
+    select(jd, mag, observer, band) %>%
+    group_by(jd, observer, band) %>%
+    summarize(delta = max(mag) - min(mag), mag = mean(mag), n = n()) %>%
+    distinct() %>%
+    ungroup() %>%
+    select(jd, observer, band, mag, n, delta) %>%
+    arrange(jd)
+}
+
+### calculate average daily magnitude where day spans [0.5, 0.5)
+daily_magnitude <- function(magnitudes) {
+  magnitudes %>%
+    mutate(day = round(jd)) %>%
+    select(day, mag, band, observer) %>%
+    group_by(band, observer, day) %>%
+    summarize(daily_observer_mag = mean(mag)) %>%
+    group_by(band, day) %>%
+    mutate(mean_daily_mag = mean(daily_observer_mag, na.rm=TRUE),
+           sd_daily_mag = sd(daily_observer_mag, na.rm=TRUE),
+           n_daily_mag = n(),
+           delta_daily_mag = (daily_observer_mag - mean_daily_mag)) %>%
+    ungroup() %>%
+    arrange(day)
+}
+```
+
+## Is Betegeuse about to supernova?
+
+`#Betelgeuse` is trending this week because of the observation that it seems to be reaching historic lows in magnitude. Victor C. (`@chmn_victor`) made this case very nicely in a twitter thread that drew data from AAVSO:
+
+```
+Today, I saw that a lot of astronomers/astrophysicists were talking about #Betelgeuse . Indeed, according to many, Betelgeuse luminosity seems to be quite low. Some say it’s extraordinary, others say it happens quite often, but all (secretly or not) hope for a supernova. 1/7
+
+Even if I don’t believe it is likely that a supernova will happen in the next weeks, I wanted to know if this dimming was actually extraordinary. I looked at the AAVSO data, like everyone. At first, I saw what I already saw on Twitter (see figure): it seemed like it already 2/7
+
+happened 5 times during the last 50 years. But I dug a little deeper, and I saw that in November 1985, when the luminosity was very low, a group of astronomers (Rodrigues A., Paulo) had made many measurements. ALL were very low in brightness (most around 1.8), and quite far 3/7
+
+from other astronomers’ measurements. And I thought that I had to exclude this group of astronomers from the data, but also the others which had that kind of results. So I looked at every astronomer, and I calculated their average magnitude measured. Then, I compared it to 4/7
+
+the overall magnitude average (during the same period of time). And I excluded all astronomers who had average magnitudes further than 0.3 from the overall average. I also excluded the average data points made from less than 10 data. Indeed, an average is supposed to smooth 5/7
+
+measurements errors, but if we average only 1 data, and that it is wrong, the average will also be very wrong. And I got this curve (see figure). Here, it is a lot clearer that what is happening this week has never happened in the past 50 years. It might not be a sign of an 6/7
+
+incoming supernova, but it remains exceptional, fascinating, as space always is. Thanks for reading me! (if I find some other interesting stuff about Betelgeuse, I’ll tweet it)
+```
+
+I'd like to explore these data to see if the result (that the current brightness of Betelgeuse is at an historic low) depends on the removal of specific "outlier" observers and the application of arbitrary thresholds.
+
+First we load the data in files obtained by AAVSO. Note that these were downloaded without regard to overlaps, so `load_files` removes duplicates (and additional data files can be easily added). We also adjust for simultaneous observations and calculate the average daily magnitude in the `visible` band. Finally, we create time series objects for `visible` and `V` bands, for the union of these, and for the average daily visible magnitude observations.
+
+```{r load-betelgeuse-data, echo=TRUE, warning=FALSE}
+raw <- load_files(files_betelgeuse)
+
+cleaned <- clean_data(raw)
+
+daily_vis <- cleaned %>%
+  filter(band=="Vis.") %>%
+  daily_magnitude() %>%
+  select(-band) %>%
+  add_dates()
+
+daily_v <- cleaned %>%
+  filter(band=="V") %>%
+  daily_magnitude() %>%
+  select(-band) %>%
+  add_dates()
+
+multiday <- daily_vis %>%
+  select(day, n_daily_mag) %>%
+  distinct() %>%
+  filter(n_daily_mag > 1) %>%
+  pull(day)
+
+vis_ts <- cleaned %>%
+  filter(band=="Vis.") %>%
+  select(-band) %>%
+  as_tsibble(key = observer, index = jd, regular = FALSE)
+
+v_ts <- cleaned %>%
+  filter(band=="V") %>%
+  select(-band) %>%
+  as_tsibble(key = observer, index = jd, regular = FALSE)
+
+vvis_ts <- cleaned %>%
+  filter(band=="V" | band=="Vis.") %>%
+  as_tsibble(key = c(observer, band), index = jd, regular = FALSE)
+
+
+
+daily_vis_ts <- daily_vis %>%
+  select(day, date, mean_daily_mag, sd_daily_mag, n_daily_mag) %>%
+  distinct() %>%
+  as_tsibble(key=NULL, index=day) %>%
+  fill_gaps() %>%
+  mutate(in_run = if_else(is.na(date), FALSE, TRUE),
+         last_of_run = lag(in_run, default = FALSE),
+         next_of_run = lead(in_run, default = FALSE),
+         run_break = in_run & !next_of_run) %>%
+  add_dates()
+
+daily_v_ts <- daily_v %>%
+  select(day, date, mean_daily_mag, sd_daily_mag, n_daily_mag) %>%
+  distinct() %>%
+  as_tsibble(key=NULL, index=day) %>%
+  fill_gaps() %>%
+  mutate(in_run = if_else(is.na(date), FALSE, TRUE),
+         last_of_run = lag(in_run, default = FALSE),
+         next_of_run = lead(in_run, default = FALSE),
+         run_break = in_run & !next_of_run) %>%
+  add_dates()
+
+#reliable <- daily_vis %>% mutate(se = (delta_daily_mag/sd_daily_mag)**2) %>% group_by(observer) %>% summarize(me = mean(se, na.rm=TRUE), n=n()) %>% filter(me <= 1.2) %>% pull(observer)
+```
+
+## Plotting brigtness data from AAVSO
+
+A quick look at all of the data:
+
+```{r all-dates-plots, echo=FALSE, warning=FALSE}
+
+start_date <- '1900-01-01'
+
+vis_ts %>%
+  mutate(day = round(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+  filter(date > start_date) %>%
+  arrange(jd) %>%
+  ggplot(aes(x=date, y=mag)) +
+  geom_point(size=0.1) +
+  ggtitle("All 'Vis.' band observations") +
+  ylab("magnitude")
+```
+
+```{r decade-plot, warning=FALSE}
+start_date <- '1984-01-01'
+end_date <- '1987-01-01'
+
+vis_ts %>%
+  mutate(day = round(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+  filter(date > start_date & date < end_date) %>%
+  arrange(jd) %>%
+  ggplot(aes(x=date, y=mag)) +
+  geom_point(size=0.1) +
+  ggtitle("All 'Vis.' band observations") +
+  ylab("magnitude")
+
+vis_ts %>%
+  mutate(day = round(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+  filter(date > start_date & date < end_date, day %in% multiday) %>%
+  arrange(jd) %>%
+  ggplot(aes(x=date, y=mag)) +
+  geom_point(size=0.1) +
+  ggtitle("Observations from days with >1 observation") +
+  ylab("magnitude")
+
+```
+
+
+```{r rolling-averages, warning=FALSE}
+start_date <- '1900-01-01'
+
+vis_ts %>%
+  mutate(day = round(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+  filter(date > start_date) %>%
+  arrange(jd) %>%
+  mutate(rolling_avg = rollapply(mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+  ggplot(aes(x=date, y=rolling_avg)) +
+  geom_point(size=0.1) +
+  ggtitle("Rolling 10-observation average of all 'Vis.' band observations") +
+  ylab("mean magnitude, rolling average")
+
+v_ts %>%
+  mutate(day = round(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+  filter(date > start_date) %>%
+  arrange(jd) %>%
+  mutate(rolling_avg = rollapply(mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+  ggplot(aes(x=date, y=rolling_avg)) +
+  geom_point(size=0.1) +
+  ggtitle("Rolling 10-observation average of all 'V' band observations") +
+  ylab("mean magnitude, rolling average")
+
+vis_ts %>%
+  mutate(day = round(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+  filter(date > start_date, day %in% multiday) %>%
+  arrange(jd) %>%
+  mutate(rolling_avg = rollapply(mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+  ggplot(aes(x=date, y=rolling_avg)) +
+  geom_point(size=0.1) +
+  ggtitle("Rolling average of observations from days with >1 observation") +
+  ylab("mean magnitude, rolling average")
+
+v_ts %>%
+  mutate(day = round(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+  filter(date > start_date, day %in% multiday) %>%
+  arrange(jd) %>%
+  mutate(rolling_avg = rollapply(mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+  ggplot(aes(x=date, y=rolling_avg)) +
+  geom_point(size=0.1) +
+  ggtitle("Rolling average of V-band observations from days with >1 observation") +
+  ylab("mean magnitude, rolling average")
+
+daily_vis_ts %>%
+  filter(n_daily_mag > 1, date > start_date) %>%
+  mutate(rolling_avg = rollapply(mean_daily_mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+  ggplot(aes(x=date, y=rolling_avg)) +
+  geom_line(size=0.1) +
+  ggtitle("Daily average, days with >1 observation per day") +
+  ylab("mean daily magnitude, rolling average")
+
+daily_v_ts %>%
+  filter(n_daily_mag > 1, date > start_date) %>%
+  mutate(rolling_avg = rollapply(mean_daily_mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+  ggplot(aes(x=date, y=rolling_avg)) +
+  geom_line(size=0.1) +
+  ggtitle("Daily V average, days with >1 observation per day") +
+  ylab("mean daily magnitude, rolling average")
+
+```
+
+Victor C. sensibly limited the observation period to post-1965, and that seems reasonable. I'll push it to 1945 though, to get a bigger historical sampling.
+
+
+```{r post-1945-plots, warning=FALSE}
+
+start_date <- '1945-01-01'
+
+vis_ts %>%
+  mutate(day = floor(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+  filter(date > start_date, day %in% multiday) %>%
+  arrange(jd) %>%
+  mutate(rolling_avg = rollapply(mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+  ggplot(aes(x=date, y=rolling_avg)) +
+  geom_point(size=0.1) +
+  ggtitle("Rolling average of observations from days with >1 observation") +
+  ylab("mean magnitude, rolling average")
+
+daily_vis_ts %>%
+  filter(n_daily_mag > 1, date > start_date) %>%
+  mutate(rolling_avg = rollapply(mean_daily_mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+  ggplot(aes(x=date, y=rolling_avg)) +
+  geom_line(size=0.1) +
+  ggtitle("Daily average, days with >1 observation per day") +
+  ylab("mean daily magnitude, rolling average")
+
+# v_ts %>%
+#   mutate(day = floor(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+#   filter(date > start_date, day %in% multiday) %>%
+#   arrange(jd) %>%
+#   mutate(rolling_avg = rollapply(mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+#   ggplot(aes(x=date, y=rolling_avg)) +
+#   geom_point(size=0.1) +
+#   ggtitle("Observations from days with >1 observation") +
+#   ylab("mean magnitude, rolling average")
+
+# v_ts %>%
+#   mutate(day = floor(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+#   filter(date > start_date, observer %in% reliable) %>%
+#   arrange(jd) %>%
+#   mutate(rolling_avg = rollapply(mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+#   ggplot(aes(x=date, y=rolling_avg)) +
+#   geom_point(size=0.1) +
+#   ggtitle("Observations from 'reliable' observers") +
+#   ylab("mean magnitude, rolling average")
+
+# v_ts %>%
+#   mutate(day = floor(jd), date = as_date(insol::JD(day, inverse = TRUE))) %>%
+#   filter(date > start_date, !observer %in% c("CRK", "RB", "ROP")) %>%
+#   arrange(jd) %>%
+#   mutate(rolling_avg = rollapply(mag, 10, mean, fill=NA, partial=TRUE, align="right")) %>%
+#   ggplot(aes(x=date, y=rolling_avg)) +
+#   geom_point(size=0.1) +
+#   ggtitle("Observations excluding observers CRK, RB and ROP") +
+#   ylab("mean magnitude, rolling average")
+
+```
+
+
+## Is "RB" more than one observer?
+
+The user "RB" is by far the most prolific contributor to the dataset, having logged 2659 observations. However, despite the assumption that could be made that RB is a pro at variable star observation, some problems with the data from RB have emerged.
+```{r qc, echo=FALSE, warning=FALSE}
+
+cleaned %>%
+  filter(observer=="RB") %>%
+  arrange(n, desc(jd)) %>%
+  add_dates() %>%
+  ggplot(aes(x=date)) +
+  geom_density(adjust = 0.2) +
+  geom_rug(aes(color=factor(n, levels=c(1, 2))), size=0.5)
+
+# dupes_RB <- cleaned %>%
+#   mutate(day = floor(jd)) %>%
+#   filter(observer=="RB", band=="Vis.") %>%
+#   select(day) %>%
+#   filter(duplicated(.)) %>%
+#   pull(day)
+# 
+# daily_vis %>%
+#   group_by(observer) %>%
+#   filter(observer=="RB") %>%
+#   ggplot(aes(x=date)) +
+#   geom_density(adjust = 0.2)# + geom_rug(size=0.05)
+
+# raw %>%
+#   select(jd, mag, observer) %>%
+#   mutate(time=jd%%1, date = as_date(insol::JD(floor(jd), inverse = TRUE))) %>%
+#   arrange(jd) %>%
+#   separate(date, into=c("year","month","day"), remove=FALSE) %>%
+#   mutate(year = as.integer(year),
+#          month = as.integer(month),
+#          day = as.integer(day),
+#          doy = (insol::daydoy(year, month, day) + 175) %% 365,
+#          sun = map_dbl(jd, ~ (sunpos(.x)$ra / 360)),
+#          sun_rel = (sun + 1 - ra2dec(ra_betelgeuse)/24) %% 1,
+#          sun_pos = sun_rel + time,
+#          focal = if_else(observer =="THR", TRUE, FALSE)) %>%
+#   ggplot(aes(x=sun_rel, y=time, color=focal)) +
+#   geom_point(aes(color=focal), size=0.1) +
+#   xlab("Sun's position relative to target") +
+#   ylab("time of observation")
+
+  
+#  ggplot(aes(x=sun_pos)) + geom_histogram(binwidth=0.01)
+#  group_by(observer) %>% summarize(n=n()) %>% arrange(desc(n))
+  
+  
+# raw %>%
+# #  select(jd, mag, observer) %>%
+#   mutate(time=jd%%1, date = as_date(insol::JD(floor(jd), inverse = TRUE))) %>%
+#   arrange(jd) %>%
+#   separate(date, into=c("year","month","day"), remove=FALSE) %>%
+#   mutate(year = as.integer(year),
+#          month = as.integer(month),
+#          day = as.integer(day),
+#          doy = (insol::daydoy(year, month, day) + 175) %% 365,
+#          sun = map_dbl(jd, ~ (sunpos(.x)$ra / 360)),
+#          sun_rel = (sun + 1 - ra2dec(ra_betelgeuse)/24) %% 1,
+#          sun_pos = sun_rel + time) %>%
+#   filter(observer=="THR") %>% View()
+#   ggplot(aes(x=doy, y=time, color=year)) + geom_point(size=0.1)
+# 
+# 
+# 
+# raw %>%
+#   select(jd, mag) %>%
+#   mutate(time=jd%%1, date = as_date(insol::JD(floor(jd), inverse = TRUE))) %>%
+#   ggplot(aes(x=time)) + geom_density(adjust = 0.1) + geom_rug(size=0.05)
+
+```
