@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1579337153302.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1781438200",
+    "id" : "2E13BAD3",
+    "lastKnownWriteTime" : 1580201042,
+    "last_content_update" : 1580201042643,
+    "path" : "~/Projects/betelgeuse/lightcurve.Rmd",
+    "project_path" : "lightcurve.Rmd",
+    "properties" : {
+        "cursorPosition" : "311,1",
+        "last_setup_crc32" : "E220604Cd625ae8c",
+        "scrollLine" : "292"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}
