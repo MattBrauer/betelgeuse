@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE)
 library(tidyverse)
 library(lubridate)
+library(fs)
 library(insol)
 library(zoo)
 library(forecast)
@@ -45,7 +46,7 @@ get_new_data <- function(id='Betelgeuse', from_date='2010-01-01', to_date=today(
     comCode = col_character(),
     val = col_character(),
     starName = col_character(),
-    mType = col_character(),
+    mtype = col_character(),
     obsID = col_skip(),
     fainterThan = col_skip(),
     obsType = col_skip(),
@@ -74,7 +75,7 @@ get_new_data <- function(id='Betelgeuse', from_date='2010-01-01', to_date=today(
            observer = by,
            error = uncert) %>%
     filter(!is.na(mag)) %>%
-    distinct(jd, by, band, mag, error, .keep_all=TRUE)
+    distinct(jd, observer, band, mag, error, .keep_all=TRUE)
 }
 
 ### transform h-m-s representation of RA into decimal days
@@ -214,10 +215,10 @@ I'd like to explore these data to see if the result (that the current brightness
 
 First we load the data in files obtained by AAVSO. Note that these were downloaded without regard to overlaps, so `load_files` removes duplicates (and additional data files can be easily added). We also adjust for simultaneous observations and calculate the average daily magnitude in the `visible` band. Finally, we create time series objects for `visible` and `V` bands, for the union of these, and for the average daily visible magnitude observations.
 
-```{r load-betelgeuse-data, echo=TRUE, warning=FALSE}
+```{r load-betelgeuse-data, echo=FALSE, warning=FALSE}
 #combine_files(files_betelgeuse, output_filename = output_file_betelgeuse)
 
-raw <- load_file(output_file_betelgeuse)
+if(file_access(data_betelgeuse, "read")) raw <- readRDS(data_betelgeuse) else raw <- load_file(output_file_betelgeuse)
 
 last_date <- raw %>%
   arrange(desc(jd)) %>%
@@ -299,11 +300,11 @@ daily_v_ts <- daily_v %>%
 
 daily_v_ts %>%
   filter(date > '2019-01-01') %>%
-  ggplot(aes(x=date, y=mean_daily_mag))
+  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse()
 
 daily_v_ts %>%
   filter(date > '2019-10-01') %>%
-  ggplot(aes(x=date, y=mean_daily_mag))
+  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse()
 
 v_ts %>%
   add_dates() %>%
@@ -316,11 +317,11 @@ v_ts %>%
 
 daily_vis_ts %>%
   filter(date > '2019-01-01') %>%
-  ggplot(aes(x=date, y=mean_daily_mag))
+  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse()
 
 daily_vis_ts %>%
   filter(date > '2019-10-01') %>%
-  ggplot(aes(x=date, y=mean_daily_mag))
+  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse()
 
 vis_ts %>%
   add_dates() %>%

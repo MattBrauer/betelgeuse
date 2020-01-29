@@ -1,0 +1,6 @@
+"0","raw <- get_new_data(from_date=last_date) %>%
+  bind_rows(raw) %>%
+  distinct()
+"
+"2","No encoding supplied: defaulting to UTF-8.
+"

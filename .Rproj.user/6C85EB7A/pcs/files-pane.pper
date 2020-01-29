@@ -1,0 +1,9 @@
+{
+    "path" : "~/Projects/betelgeuse/data",
+    "sortOrder" : [
+        {
+            "ascending" : true,
+            "columnIndex" : 2
+        }
+    ]
+}

@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1580277307425.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3937038281",
+    "id" : "B7394F3D",
+    "lastKnownWriteTime" : 1580277386,
+    "last_content_update" : 1580277386394,
+    "path" : "~/Projects/betelgeuse/lightcurve/app.R",
+    "project_path" : "lightcurve/app.R",
+    "properties" : {
+        "cursorPosition" : "24,34",
+        "scrollLine" : "12"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}
