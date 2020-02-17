@@ -189,6 +189,15 @@ daily_magnitude <- function(magnitudes) {
     ungroup() %>%
     arrange(day)
 }
+
+last_date <- function(raw) {
+  raw %>%
+  arrange(desc(jd)) %>%
+  filter(row_number()==1) %>%
+  add_dates() %>%
+  pull(date)
+} 
+
 ```
 
 ## Is Betegeuse about to supernova?
@@ -220,13 +229,7 @@ First we load the data in files obtained by AAVSO. Note that these were download
 
 if(file_access(data_betelgeuse, "read")) raw <- readRDS(data_betelgeuse) else raw <- load_file(output_file_betelgeuse)
 
-last_date <- raw %>%
-  arrange(desc(jd)) %>%
-  filter(row_number()==1) %>%
-  add_dates() %>%
-  pull(date)
-
-raw <- get_new_data(from_date=last_date) %>%
+raw <- get_new_data(from_date=last_date(raw)) %>%
   bind_rows(raw) %>%
   distinct()
 
@@ -300,43 +303,53 @@ daily_v_ts <- daily_v %>%
 
 daily_v_ts %>%
   filter(date > '2019-01-01') %>%
-  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse()
+  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse() +
+  ggtitle("V band, daily averages")
 
 daily_v_ts %>%
   filter(date > '2019-10-01') %>%
-  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse()
+  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse() +
+  ggtitle("V band, daily averages")
 
 v_ts %>%
   add_dates() %>%
   filter(date > '2019-01-01', mag < 4) %>%
-  ggplot(aes(x=date, y=mag)) + geom_point() + scale_y_reverse()
+  ggplot(aes(x=date, y=mag)) + geom_point() + scale_y_reverse() +
+  ggtitle("V band, all values")
+
 v_ts %>%
   add_dates() %>%
   filter(date > '2019-10-01', mag < 4) %>%
-  ggplot(aes(x=date, y=mag)) + geom_point() + scale_y_reverse()
+  ggplot(aes(x=date, y=mag)) + geom_point() + scale_y_reverse() +
+  ggtitle("V band, all values")
 
 daily_vis_ts %>%
   filter(date > '2019-01-01') %>%
-  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse()
+  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse() +
+  ggtitle("Vis band, daily averages")
 
 daily_vis_ts %>%
   filter(date > '2019-10-01') %>%
-  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse()
+  ggplot(aes(x=date, y=mean_daily_mag)) + geom_point() + scale_y_reverse() +
+  ggtitle("Vis band, daily averages")
 
 vis_ts %>%
   add_dates() %>%
   filter(date > '2019-01-01', mag < 4) %>%
-  ggplot(aes(x=date, y=mag)) + geom_point() + scale_y_reverse()
+  ggplot(aes(x=date, y=mag)) + geom_point() + scale_y_reverse() +
+  ggtitle("Vis band, all values")
+
 vis_ts %>%
   add_dates() %>%
   filter(date > '2019-10-01', mag < 4) %>%
-  ggplot(aes(x=date, y=mag)) + geom_point() + scale_y_reverse()
+  ggplot(aes(x=date, y=mag)) + geom_point() + scale_y_reverse() +
+  ggtitle("Vis band, all values")
 
 
 ```
 
 
-## Plotting brigtness data from AAVSO
+## Plotting brightness data from AAVSO
 
 A quick look at all of the data:
 

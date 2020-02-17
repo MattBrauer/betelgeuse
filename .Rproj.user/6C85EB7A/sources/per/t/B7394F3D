@@ -5,15 +5,15 @@
     "dirty" : false,
     "encoding" : "UTF-8",
     "folds" : "",
-    "hash" : "3937038281",
+    "hash" : "4092541859",
     "id" : "B7394F3D",
-    "lastKnownWriteTime" : 1580277386,
-    "last_content_update" : 1580277386394,
+    "lastKnownWriteTime" : 1581971439,
+    "last_content_update" : 1581971439709,
     "path" : "~/Projects/betelgeuse/lightcurve/app.R",
     "project_path" : "lightcurve/app.R",
     "properties" : {
-        "cursorPosition" : "24,34",
-        "scrollLine" : "12"
+        "cursorPosition" : "129,11",
+        "scrollLine" : "112"
     },
     "read_only" : false,
     "read_only_alternatives" : [
