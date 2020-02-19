@@ -1,0 +1,12 @@
+name: Betelgeuse
+title: Betelgeuse
+username:
+account: brauerhaus
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1832193
+bundleId: 2811177
+url: https://brauerhaus.shinyapps.io/Betelgeuse/
+when: 1582097177.19634
+asMultiple: FALSE
+asStatic: FALSE

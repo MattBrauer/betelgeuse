@@ -93,6 +93,7 @@ last_date <- function(ds) {
 
 date_range <- function(ds) {
   ds %>%
-    summarize(start_date=as_date(insol::JD(min(jd), inverse=TRUE)),
-              end_date=as_date(insol::JD(max(jd), inverse=TRUE)))
+    summarize(start_date=as_date(insol::JD(min(jd + 0.5), inverse=TRUE)),
+              end_date=as_date(insol::JD(max(jd + 0.5), inverse=TRUE)))
 }
+
